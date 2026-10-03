@@ -1,18 +1,19 @@
 [project]
 name = "primitive-db"
 version = "0.1.0"
-description = "Add your description here"
+description = "Primitive in-memory database with JSON-persisted table metadata"
 readme = "README.md"
 authors = [
-    { name = "sirAlexMaslovsonVG", email = "sirAlexMaslovsonVeryGood@yandex.ru" }
+{ name = "sirAlexMaslovsonVG", email = "sirAlexMaslovsonVeryGood@yandex.ru" }
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "prompt>=0.4.1",
+"prompt>=0.4.1",
 ]
 
 [project.scripts]
 project = "primitive_db.main:main"
+database = "primitive_db.main:main"
 
 [build-system]
 requires = ["uv_build>=0.12.22,<0.13.0"]
@@ -25,9 +26,9 @@ exclude = ["venv", ".venv", "dist", "__pycache__"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
-ignore = [] 
+ignore = []
 
 [dependency-groups]
 dev = [
-    "ruff>=0.16.10",
+"ruff>=0.16.10",
 ]
