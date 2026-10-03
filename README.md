@@ -39,3 +39,7 @@
     Ошибка: Таблица "products" не существует.
 
     >>>Введите команду: exit
+
+## Демонстрация
+
+[![asciicast](https://asciinema.org/a/QhJhGJkSBJDMZPlC.svg)](https://asciinema.org/a/QhJhGJkSBJDMZPlC)
