@@ -1,3 +1,4 @@
+import json
 import re
 import shlex
 
@@ -12,6 +13,7 @@ from primitive_db.core import (
     select,
     update,
 )
+from primitive_db.decorators import create_cacher
 from primitive_db.parser import parse_set, parse_values, parse_where
 from primitive_db.utils import (
     load_metadata,
@@ -19,6 +21,9 @@ from primitive_db.utils import (
     save_metadata,
     save_table_data,
 )
+
+# Инициализируем замыкание для кэширования запросов select
+cacher = create_cacher()
 
 
 def print_help() -> None:
@@ -31,17 +36,20 @@ def print_help() -> None:
     print("\n***Операции с данными***")
     print("Функции:")
     print(
-        "<command> insert into <имя_таблицы> values (<знач1>, <знач2>, ...) - создать запись"
+        "<command> insert into <имя_таблицы> values "
+        "(<знач1>, <знач2>, ...) - создать запись"
     )
     print("<command> select from <имя_таблицы> - прочитать все записи")
     print(
         "<command> select from <имя_таблицы> where <столбец> = <значение> - по условию"
     )
     print(
-        "<command> update <имя_таблицы> set <столбец1> = <знач1> where <столбец> = <знач> - обновить"
+        "<command> update <имя_таблицы> set <столбец1> = <знач1> "
+        "where <столбец> = <знач> - обновить"
     )
     print(
-        "<command> delete from <имя_таблицы> where <столбец> = <значение> - удалить запись"
+        "<command> delete from <имя_таблицы> where <столбец> = <значение> "
+        "- удалить запись"
     )
     print("<command> info <имя_таблицы> - информация о таблице")
     print("\nОбщие команды:")
@@ -56,7 +64,8 @@ def _handle_create_table(metadata: dict, params: list[str]) -> dict:
         print(f"Некорректное значение: {value}. Попробуйте снова.")
         return metadata
     table_name, columns = params[0], params[1:]
-    return create_table(metadata, table_name, columns)
+    res = create_table(metadata, table_name, columns)
+    return res if res is not None else metadata
 
 
 def _handle_drop_table(metadata: dict, params: list[str]) -> dict:
@@ -64,12 +73,8 @@ def _handle_drop_table(metadata: dict, params: list[str]) -> dict:
     if not params:
         print("Некорректное значение: drop_table. Попробуйте снова.")
         return metadata
-    return drop_table(metadata, params[0])
-
-
-# ---------------------------------------------------------------------------
-# Обработчики CRUD-команд
-# ---------------------------------------------------------------------------
+    res = drop_table(metadata, params[0])
+    return res if res is not None else metadata
 
 
 def _print_select(metadata: dict, table_name: str, rows: list) -> None:
@@ -84,18 +89,26 @@ def _print_select(metadata: dict, table_name: str, rows: list) -> None:
 
 def _handle_insert(metadata: dict, table_name: str, values_raw: str) -> None:
     values = parse_values(values_raw)
-    data, new_id = insert(metadata, table_name, values)
+    res = insert(metadata, table_name, values)
+    if res is None:
+        return
+    data, new_id = res
     save_table_data(table_name, data)
     print(f'Запись с ID={new_id} успешно добавлена в таблицу "{table_name}".')
 
 
 def _handle_select(metadata: dict, table_name: str, where_raw: str | None) -> None:
     if table_name not in metadata:
-        raise ValueError(f'Таблица "{table_name}" не существует.')
+        print(f'Ошибка: Таблица или столбец "{table_name}" не найден.')
+        return
     data = load_table_data(table_name)
     where = parse_where(where_raw) if where_raw else None
-    result = select(data, where)
-    if not result:
+
+    # Ключ кэша: имя таблицы + сериализованное условие where
+    cache_key = (table_name, json.dumps(where, sort_keys=True) if where else None)
+    result = cacher(cache_key, lambda: select(data, where))
+
+    if result is None or not result:
         print("Записи не найдены.")
         return
     _print_select(metadata, table_name, result)
@@ -104,10 +117,16 @@ def _handle_select(metadata: dict, table_name: str, where_raw: str | None) -> No
 def _handle_update(
     metadata: dict, table_name: str, set_raw: str, where_raw: str
 ) -> None:
+    if table_name not in metadata:
+        print(f'Ошибка: Таблица или столбец "{table_name}" не найден.')
+        return
     data = load_table_data(table_name)
     set_clause = parse_set(set_raw)
     where = parse_where(where_raw)
-    data, count = update(data, set_clause, where)
+    res = update(data, set_clause, where)
+    if res is None:
+        return
+    data, count = res
     if count:
         save_table_data(table_name, data)
         print(f'Записи в таблице "{table_name}" обновлены (затронуто: {count}).')
@@ -116,9 +135,15 @@ def _handle_update(
 
 
 def _handle_delete(metadata: dict, table_name: str, where_raw: str) -> None:
+    if table_name not in metadata:
+        print(f'Ошибка: Таблица или столбец "{table_name}" не найден.')
+        return
     data = load_table_data(table_name)
     where = parse_where(where_raw)
-    data, count = delete(data, where)
+    res = delete(data, where)
+    if res is None:
+        return
+    data, count = res
     if count:
         save_table_data(table_name, data)
         print(f'Записи удалены из таблицы "{table_name}" (удалено: {count}).')
@@ -128,7 +153,8 @@ def _handle_delete(metadata: dict, table_name: str, where_raw: str) -> None:
 
 def _handle_info(metadata: dict, table_name: str) -> None:
     if table_name not in metadata:
-        raise ValueError(f'Таблица "{table_name}" не существует.')
+        print(f'Ошибка: Таблица или столбец "{table_name}" не найден.')
+        return
     columns = metadata[table_name]["columns"]
     cols = ", ".join(f"{c['name']}:{c['type']}" for c in columns)
     data = load_table_data(table_name)
@@ -137,14 +163,8 @@ def _handle_info(metadata: dict, table_name: str) -> None:
     print(f"Количество записей: {len(data)}")
 
 
-# ---------------------------------------------------------------------------
-# Разбор и диспетчеризация команд
-# ---------------------------------------------------------------------------
-
-
 def _dispatch(user_input: str, metadata: dict) -> bool:
     """Разбирает и выполняет команду. Возвращает True, если обработано."""
-    # --- простые команды без аргументов ---
     if user_input == "exit":
         raise SystemExit
     if user_input == "help":
@@ -155,7 +175,6 @@ def _dispatch(user_input: str, metadata: dict) -> bool:
             print(f"- {table_name}")
         return True
 
-    # --- create_table / drop_table (разбор через shlex, как раньше) ---
     if user_input.startswith("create_table "):
         args = shlex.split(user_input)
         metadata = _handle_create_table(metadata, args[1:])
@@ -167,31 +186,26 @@ def _dispatch(user_input: str, metadata: dict) -> bool:
         save_metadata(DB_META_FILE, metadata)
         return True
 
-    # --- insert into <table> values (...) ---
     match = re.fullmatch(r"insert\s+into\s+(\w+)\s+values\s*\((.*)\)", user_input)
     if match:
         _handle_insert(metadata, match.group(1), match.group(2))
         return True
 
-    # --- select from <table> [where ...] ---
     match = re.fullmatch(r"select\s+from\s+(\w+)(?:\s+where\s+(.+))?", user_input)
     if match:
         _handle_select(metadata, match.group(1), match.group(2))
         return True
 
-    # --- update <table> set ... where ... ---
     match = re.fullmatch(r"update\s+(\w+)\s+set\s+(.+?)\s+where\s+(.+)", user_input)
     if match:
         _handle_update(metadata, match.group(1), match.group(2), match.group(3))
         return True
 
-    # --- delete from <table> where ... ---
     match = re.fullmatch(r"delete\s+from\s+(\w+)\s+where\s+(.+)", user_input)
     if match:
         _handle_delete(metadata, match.group(1), match.group(2))
         return True
 
-    # --- info <table> ---
     match = re.fullmatch(r"info\s+(\w+)", user_input)
     if match:
         _handle_info(metadata, match.group(1))

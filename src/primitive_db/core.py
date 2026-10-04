@@ -1,5 +1,11 @@
 """Основная логика работы с таблицами и данными."""
 
+from primitive_db.decorators import (
+    confirm_action,
+    handle_db_errors,
+    log_time,
+)
+
 # Путь к файлу с метаданными таблиц
 DB_META_FILE = "db_meta.json"
 
@@ -7,27 +13,17 @@ DB_META_FILE = "db_meta.json"
 VALID_TYPES = ("int", "str", "bool")
 
 
+@handle_db_errors
 def create_table(metadata: dict, table_name: str, columns: list[str]) -> dict:
-    """Создаёт таблицу в метаданных.
-
-    Args:
-        metadata: текущие метаданные (словарь таблиц).
-        table_name: имя создаваемой таблицы.
-        columns: список столбцов в формате "имя:тип".
-
-    Returns:
-        Обновлённый словарь metadata.
-    """
+    """Создаёт таблицу в метаданных."""
     if table_name in metadata:
-        print(f'Ошибка: Таблица "{table_name}" уже существует.')
-        return metadata
+        raise ValueError(f'Таблица "{table_name}" уже существует.')
 
     parsed_columns = []
     for column in columns:
         name, _, col_type = column.partition(":")
         if col_type not in VALID_TYPES:
-            print(f"Некорректное значение: {column}. Попробуйте снова.")
-            return metadata
+            raise ValueError(f"Некорректное значение: {column}. Попробуйте снова.")
         parsed_columns.append({"name": name, "type": col_type})
 
     # ID добавляется автоматически в начало списка столбцов
@@ -40,19 +36,12 @@ def create_table(metadata: dict, table_name: str, columns: list[str]) -> dict:
     return metadata
 
 
+@confirm_action("удаление таблицы")
+@handle_db_errors
 def drop_table(metadata: dict, table_name: str) -> dict:
-    """Удаляет таблицу из метаданных.
-
-    Args:
-        metadata: текущие метаданные.
-        table_name: имя удаляемой таблицы.
-
-    Returns:
-        Обновлённый словарь metadata.
-    """
+    """Удаляет таблицу из метаданных."""
     if table_name not in metadata:
-        print(f'Ошибка: Таблица "{table_name}" не существует.')
-        return metadata
+        raise KeyError(table_name)
 
     del metadata[table_name]
     print(f'Таблица "{table_name}" успешно удалена.')
@@ -67,11 +56,11 @@ def drop_table(metadata: dict, table_name: str) -> dict:
 def _get_columns(metadata: dict, table_name: str) -> list:
     """Возвращает список столбцов [{'name':..., 'type':...}, ...]."""
     if table_name not in metadata:
-        raise ValueError(f'Таблица "{table_name}" не существует.')
+        raise KeyError(table_name)
     return metadata[table_name]["columns"]
 
 
-def _validate_value(field_type: str, value):
+def _validate_value(field_type: str, value: object) -> object:
     """Проверяет соответствие значения объявленному типу."""
     if field_type == "int":
         if isinstance(value, bool) or not isinstance(value, int):
@@ -87,12 +76,13 @@ def _validate_value(field_type: str, value):
     return value
 
 
-def insert(metadata: dict, table_name: str, values: list):
+@log_time
+@handle_db_errors
+def insert(metadata: dict, table_name: str, values: list) -> tuple[list, int]:
     """Создаёт запись. Возвращает (data, new_id)."""
     from primitive_db.utils import load_table_data
 
     columns = _get_columns(metadata, table_name)
-    # столбцы БЕЗ ID — их количество должно совпасть с values
     field_columns = [c for c in columns if c["name"] != "ID"]
 
     if len(values) != len(field_columns):
@@ -102,7 +92,7 @@ def insert(metadata: dict, table_name: str, values: list):
         )
 
     record = {}
-    for col, val in zip(field_columns, values):
+    for col, val in zip(field_columns, values, strict=False):
         record[col["name"]] = _validate_value(col["type"], val)
 
     data = load_table_data(table_name)
@@ -116,6 +106,8 @@ def insert(metadata: dict, table_name: str, values: list):
     return data, new_id
 
 
+@log_time
+@handle_db_errors
 def select(table_data: list, where_clause: dict | None = None) -> list:
     """Возвращает все записи или отфильтрованные по where_clause."""
     if not where_clause:
@@ -127,7 +119,8 @@ def select(table_data: list, where_clause: dict | None = None) -> list:
     ]
 
 
-def update(table_data: list, set_clause: dict, where_clause: dict):
+@handle_db_errors
+def update(table_data: list, set_clause: dict, where_clause: dict) -> tuple[list, int]:
     """Обновляет поля подходящих записей. Возвращает (data, count)."""
     count = 0
     for row in table_data:
@@ -138,7 +131,9 @@ def update(table_data: list, set_clause: dict, where_clause: dict):
     return table_data, count
 
 
-def delete(table_data: list, where_clause: dict):
+@confirm_action("удаление записей")
+@handle_db_errors
+def delete(table_data: list, where_clause: dict) -> tuple[list, int]:
     """Удаляет подходящие записи. Возвращает (data, count)."""
     kept, count = [], 0
     for row in table_data:
