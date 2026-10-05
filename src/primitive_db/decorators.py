@@ -17,7 +17,6 @@ def handle_db_errors(func: Callable) -> Callable:
                 "Ошибка: Файл данных не найден. "
                 "Возможно, база данных не инициализирована."
             )
-
         except KeyError as error:
             print(f"Ошибка: Таблица или столбец {error} не найден.")
         except ValueError as error:
@@ -44,8 +43,6 @@ def confirm_action(action_name: str) -> Callable:
 
             if response != "y":
                 print("Операция отменена.")
-                # Если функция первым аргументом принимает metadata / table_data,
-                # возвращаем исходные данные без изменений
                 if args and isinstance(args[0], (dict, list)):
                     if func.__name__ == "delete":
                         return args[0], 0
@@ -84,4 +81,10 @@ def create_cacher() -> Callable:
         cache[key] = result
         return result
 
+    def clear() -> None:
+        """Полностью очищает кэш."""
+        cache.clear()
+
+    # Прикрепляем сброс к самой функции кэширования
+    cache_result.clear = clear  # type: ignore[attr-defined]
     return cache_result

@@ -94,6 +94,7 @@ def _handle_insert(metadata: dict, table_name: str, values_raw: str) -> None:
         return
     data, new_id = res
     save_table_data(table_name, data)
+    cacher.clear()  # данные изменились — сбрасываем кэш
     print(f'Запись с ID={new_id} успешно добавлена в таблицу "{table_name}".')
 
 
@@ -101,12 +102,14 @@ def _handle_select(metadata: dict, table_name: str, where_raw: str | None) -> No
     if table_name not in metadata:
         print(f'Ошибка: Таблица или столбец "{table_name}" не найден.')
         return
-    data = load_table_data(table_name)
+
     where = parse_where(where_raw) if where_raw else None
 
     # Ключ кэша: имя таблицы + сериализованное условие where
     cache_key = (table_name, json.dumps(where, sort_keys=True) if where else None)
-    result = cacher(cache_key, lambda: select(data, where))
+
+    # Файл читается ТОЛЬКО при промахе кэша — при попадании читать не нужно
+    result = cacher(cache_key, lambda: select(load_table_data(table_name), where))
 
     if result is None or not result:
         print("Записи не найдены.")
@@ -129,6 +132,7 @@ def _handle_update(
     data, count = res
     if count:
         save_table_data(table_name, data)
+        cacher.clear()  # данные изменились — сбрасываем кэш
         print(f'Записи в таблице "{table_name}" обновлены (затронуто: {count}).')
     else:
         print("Записи для обновления не найдены.")
@@ -146,6 +150,7 @@ def _handle_delete(metadata: dict, table_name: str, where_raw: str) -> None:
     data, count = res
     if count:
         save_table_data(table_name, data)
+        cacher.clear()  # данные изменились — сбрасываем кэш
         print(f'Записи удалены из таблицы "{table_name}" (удалено: {count}).')
     else:
         print("Записи для удаления не найдены.")
@@ -211,7 +216,7 @@ def _dispatch(user_input: str, metadata: dict) -> bool:
         _handle_info(metadata, match.group(1))
         return True
 
-    print(f"Функции {user_input.split()[0]} нет. Попробуйте снова.")
+    print(f"Некорректная команда: {user_input!r}. Попробуйте снова.")
     return True
 
 
