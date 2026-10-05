@@ -131,6 +131,9 @@ delete from <имя_таблицы> where <столбец> = <значение>
 - условие `where` и блок `set` поддерживают **одно** условие `столбец = значение`;
 - регистр ключевых слов не важен.
 
+## Демонстрация
+[![asciicast](https://asciinema.org/a/2Mol5IVatl4XAuvW.svg)](https://asciinema.org/a/2Mol5IVatl4XAuvW)
+
 ## Обработка ошибок
 
 Все операции с базой данных обёрнуты декоратором `@handle_db_errors`
@@ -269,3 +272,6 @@ delete from <имя_таблицы> where <столбец> = <значение>
 | `confirm_action(action_name)` | запрос подтверждения опасной операции |
 | `log_time` | замер и вывод времени выполнения функции |
 | `create_cacher()` | замыкание для кэширования результатов `select` |
+
+## Демонстрация
+[![asciicast](https://asciinema.org/a/E94lXTY3Bnr1jcLA.svg)](https://asciinema.org/a/E94lXTY3Bnr1jcLA)
